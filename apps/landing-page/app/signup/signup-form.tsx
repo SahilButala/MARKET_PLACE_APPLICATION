@@ -1,30 +1,148 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, SubmitEvent, useState } from "react";
 import { countries } from "./countries";
 import styles from "./signup.module.css";
+import { useSignUp } from "@clerk/nextjs";
+import { error } from "next/dist/build/output/log";
+import { useStatements } from "@clerk/nextjs/experimental";
 
 interface SignupFormProps {
   role: "client" | "freelancer";
 }
 
 export function SignupForm({ role }: SignupFormProps) {
+  const { signUp, fetchStatus } = useSignUp()
   const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState("");
   const isClient = role === "client";
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setStatus(
-      "The form is ready. Account creation will activate when Clerk is connected.",
-    );
+  const [isError, setIsError] = useState(false)
+  const [verificationCode, setverificationCode] = useState("")
+  const [pendingEmail, setpendingEmail] = useState("")
+  const [isLoading, setisLoading] = useState(false)
+
+
+  // for error messages
+  function getErrorMessage(error: any) {
+    if (error instanceof Error) {
+      return error.message
+    }
+
+    if (error && typeof error == "object" && "message" in error) {
+      return String(error?.message)
+    }
+
+    return "We couldn't create account. Please check your details and try again."
   }
 
-  function handleSocialSignup(provider: "Google" | "GitHub") {
-    setStatus(
-      `${provider} signup is ready to activate when Clerk is connected.`,
-    );
+
+  async function redirectWithSessionToken() {
+    if (!signUp) {
+      return
+    }
+
+    const { error } = await signUp.finalize({
+      navigate: async ({ session, decorateUrl }) => {
+        const token = await session.getToken()
+        if (!token) {
+          throw new Error("Clerk did not return a session token.")
+        }
+
+        window.location.assign(decorateUrl(`/api/v1/sign-up?token=${encodeURIComponent(token)}&role=${encodeURIComponent(role)}`))
+      }
+    })
+
+    if (error) {
+      throw error
+    }
+
+  }
+
+  async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setStatus("")
+    setIsError(false)
+
+    if (!signUp) {
+      setIsError(true)
+      setStatus("Authentication is loading. Please try again")
+      return
+    }
+
+    const formdata = new FormData(event?.currentTarget)
+    const emailAddress = String(formdata?.get("email") ?? "")
+
+    try {
+      const { } = signUp.password({
+        emailAddress,
+        password: String(formdata.get("password") ?? ""),
+        firstName: String(formdata.get("firstName") ?? ""),
+        lastName: String(formdata?.get("lastName") ?? ""),
+        legalAccepted: formdata?.get("terms") === "on",
+        unsafeMetadata: {
+          role,
+          country: String(formdata?.get("company") ?? ""),
+        }
+
+
+      })
+
+      if (error) {
+        throw error
+      }
+
+      if (signUp?.status === "complete") {
+        await redirectWithSessionToken()
+        return
+      }
+
+
+      const verification = await signUp.verifications.sendEmailCode()
+
+      if (verification?.error) {
+        throw verification?.error
+      }
+
+      setpendingEmail(emailAddress)
+      // setverificationCode()
+      setStatus("we sent a six digit-code verification to email")
+
+    } catch (error: any) {
+      setIsError(true)
+      setStatus(getErrorMessage(error))
+
+    }
+  }
+
+  async function handleSocialSignup(provider: "Google" | "GitHub") {
+    setStatus("");
+    setIsError(false)
+
+    if (!signUp) {
+      setIsError(true)
+      setStatus("Authentication still loading. Please try again")
+      return
+    }
+
+    try {
+      const { } = await signUp.sso({
+        strategy: provider === "Google" ? "oauth_google" : "oauth_github",
+        redirectUrl: `/auth/complete?role=${encodeURIComponent(role)}`,
+        redirectCallbackUrl: `signup?role=${role}`,
+        unsafeMetadata: { role }
+      })
+
+      if (error) {
+        throw error
+      }
+    } catch (error) {
+      setIsError(true)
+      setStatus(getErrorMessage(error))
+    }
+
+
   }
 
   return (
@@ -234,14 +352,19 @@ export function SignupForm({ role }: SignupFormProps) {
 
         <button
           type="submit"
+          disabled={isLoading}
           className="h-12 cursor-pointer w-full rounded-xl bg-[#252724] text-sm font-semibold text-white shadow-sm transition hover:bg-[#3b3e39] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#4c7849]"
         >
-          Create {isClient ? "client" : "freelancer"} account
+          {isLoading ? "Creating account.." : `Create ${isClient ? "client" : "freelancer"} account`}
         </button>
 
         {status && (
           <p
-            className="rounded-xl bg-[#edf5eb] px-4 py-3 text-center text-xs font-medium text-[#4e704b]"
+            className={`rounded-xl bg-[#edf5eb] px-4 py-3 text-center text-xs font-medium text-[#4e704b]
+               ${isError ?
+                "bg-[#fff0ee] text-[#914d45]" : "bg-[#edf53b] text-[$3e704b]"
+              }
+              `}
             role="status"
           >
             {status}
