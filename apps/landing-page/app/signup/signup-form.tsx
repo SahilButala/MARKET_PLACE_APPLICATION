@@ -22,6 +22,7 @@ export function SignupForm({ role }: SignupFormProps) {
   const [verificationCode, setverificationCode] = useState("")
   const [pendingEmail, setpendingEmail] = useState("")
   const [isLoading, setisLoading] = useState(false)
+  const [verifying, setverifying] = useState(false)
 
 
   // for error messages
@@ -36,7 +37,6 @@ export function SignupForm({ role }: SignupFormProps) {
 
     return "We couldn't create account. Please check your details and try again."
   }
-
 
   async function redirectWithSessionToken() {
     if (!signUp) {
@@ -145,6 +145,147 @@ export function SignupForm({ role }: SignupFormProps) {
 
   }
 
+  async function handleVerification(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setStatus("")
+    setIsError(false)
+
+    if (!signUp) {
+      setIsError(true)
+      setStatus("Authentication still loading. Please try again")
+      return
+    }
+
+    try {
+      const { error } = await signUp.verifications.verifyEmailCode({
+        code: verificationCode,
+      })
+
+      if (error) {
+        throw error
+      }
+
+      if (signUp?.status !== "complete") {
+        throw new Error("Your email is verified , butSign up is not complete. Please try again.")
+      }
+      await redirectWithSessionToken()
+      return
+
+    } catch (error) {
+      setIsError(true)
+      setStatus(getErrorMessage(error))
+    }
+  }
+
+  async function resendVerification() {
+    setStatus("")
+    setIsError(false)
+    setverifying(true)
+    try {
+      const { error } = await signUp.verifications.sendEmailCode()
+
+      if (error) {
+        setIsError(true)
+        setStatus(getErrorMessage(error))
+        return
+      }
+
+      setStatus("we sent a six digit-code verification to email")
+      setverifying(false)
+
+    } catch (error) {
+      setIsError(true)
+      setverifying(false)
+      setStatus(getErrorMessage(error))
+    }
+  }
+
+
+  if (!verifying) {
+
+    return (
+      <div className="w-full max-w-md text-left">
+        <button
+          type="button"
+          onClick={() => {
+            void signUp?.reset()
+            setverificationCode("")
+            setverifying(false)
+            setStatus("")
+          }}
+          className="mb-8 inline-flex items-center gap-2 text-sm font-semibold text-[#5e625c] transition hover:text-[#252724]"
+        >
+          Back to account details
+        </button>
+
+        <div className="text-center">
+          <span aria-hidden="true" className="inline-flex rounded-full bg-[#e9f4e6] px-3 py-1.5 text-xs font-semibold text-[#4f754d]">
+            back
+          </span>
+          <h1 className={`${styles.formTitle} mt-4 text-[#171916]`}>
+            Check your inbox
+          </h1>
+
+          <p className="mt-3 text-sm leading-6 text-[#72766f]">
+            Enter the six-digit code we sent to your email.
+            <span className="font-semibold text-[#30332f]">{pendingEmail}.</span>
+          </p>
+        </div>
+
+
+        <form onSubmit={handleVerification} className="mt-8 space-y-5">
+          <label className="grid gap-2 text-sm font-semibold text-[#30332f]">
+            Verification code
+            <input
+              name="verificationCode"
+              type="text"
+              value={verificationCode}
+              onChange={(e) => setverificationCode(e.target.value)}
+              required
+              inputMode="numeric"
+              className="h-12 rounded-xl border border-black/13 bg-white px-4 font-normal outline-none transition placeholder:text-[#a2a59f] focus:border-[#5d8b59] focus:ring-3 focus:ring-[#dcebd9] text-center"
+              placeholder="0 0 0 0 0 0"
+              autoComplete="one-time-code"
+              minLength={6}
+              maxLength={6}
+              autoFocus
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={isLoading || verificationCode.length !== 6}
+            className="h-12 cursor-pointer w-full rounded-xl bg-[#252724] text-sm font-semibold text-white shadow-sm transition hover:bg-[#3b3e39] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#4c7849]"
+          >
+            {isLoading ? "Verifying.." : "Verify"}
+          </button>
+
+          <button
+            type="button"
+            onClick={()=>void resendVerification()}
+            disabled={isLoading}
+            className="h-12 cursor-pointer w-full rounded-xl bg-[#f8f9f7] text-sm font-semibold text-[#30332f] shadow-sm transition hover:bg-[#e9ecea] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#4c7849]"
+          >
+            {isLoading ? "Resending.." : "Resend code"}
+          </button>
+
+          {status && (
+            <p
+              className={`rounded-xl px-4 py-3 text-center text-xs font-medium
+               ${isError ?
+                  "bg-[#fff0ee] text-[#914d45]" : "bg-[#edf5eb] text-[#4e704b]"
+                }
+              `}
+              role="status"
+            >
+              {status}
+            </p>
+          )}
+        </form>
+
+      </div>
+    )
+  }
   return (
     <div className="w-full max-w-md text-left">
       <Link
